@@ -1,8 +1,7 @@
 // src/types.ts
 
 /* -------------------------------------------------------
- * Base JSON (loose on purpose: adapter forwards arbitrary
- * execution payloads; strict typing here causes TS2411 churn)
+ * Loose JSON (adapter forwards arbitrary payloads)
  * ----------------------------------------------------- */
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -23,7 +22,7 @@ export interface ActorRef {
 }
 
 export interface IntentObject {
-  intent: string;            // authoritative intent string identifier
+  intent: string;
   actor: ActorRef;
   context?: JsonObject;
   [k: string]: any;
@@ -40,11 +39,11 @@ export interface GateRequestEnvelope {
  * ----------------------------------------------------- */
 
 export interface CoreClientConfig {
-  coreBaseUrl: string;                 // e.g. https://solace-core.vercel.app
-  executePath?: string;                // default /v1/execute
-  authorizePath?: string;              // default /v1/authorize
-  timeoutMs?: number;                  // default 10_000
-  headers?: Record<string, string>;    // adapter->core shared secret header etc.
+  coreBaseUrl: string;
+  executePath?: string;
+  authorizePath?: string;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
 }
 
 export type CoreDecision = "PERMIT" | "DENY" | "ESCALATE";
@@ -52,16 +51,17 @@ export type CoreDecision = "PERMIT" | "DENY" | "ESCALATE";
 export interface CoreAuthorizeResponse {
   decision: CoreDecision;
   reason?: string;
+  error?: string;
 }
 
 export interface CoreExecuteResponse {
   decision: "PERMIT" | "DENY";
   reason?: string;
+  error?: string;
 
   executeHash?: string;
   intentHash?: string;
 
-  // Core returns these in your server.js PERMIT response
   issuedAt?: string;
   expiresAt?: string;
   time?: string;
@@ -70,64 +70,74 @@ export interface CoreExecuteResponse {
 }
 
 /* -------------------------------------------------------
- * Forwarding config
+ * Forward targets
  * ----------------------------------------------------- */
 
 export interface ForwardTarget {
-  service: string;                      // logical executor service name
-  url: string;                          // executor endpoint (ideally private)
+  service: string;
+  url: string;
   method?: "POST" | "PUT";
   timeoutMs?: number;
-  headers?: Record<string, string>;     // optional adapter->executor auth
+  headers?: Record<string, string>;
+
+  // Your config.ts is passing this:
+  bearerToken?: string;
 }
+
+/* -------------------------------------------------------
+ * Adapter config
+ * ----------------------------------------------------- */
 
 export interface AdapterForwardingConfig {
   adapterId: string;
 
-  // Receipt signing keys
-  receiptPrivateKeyPem: string;         // PEM private key used to sign receipts
-  receiptPublicKeyPem: string;          // PEM public key used by executors to verify
-  receiptTtlSeconds: number;            // receipt validity window
+  receiptPrivateKeyPem: string;
+  receiptPublicKeyPem: string;
+  receiptTtlSeconds: number;
 
-  // Core config lives under `core` in your gate.ts
+  clockSkewSeconds?: number;
+
   core: CoreClientConfig;
 
-  // Map intent.intent -> service name
-  actionToService: Record<string, string>;
+  // Your gate.ts is referencing `targets`
+  targets: Record<string, ForwardTarget>;
 
-  // Service registry: service name -> target
-  services: Record<string, ForwardTarget>;
+  // Intent string -> service key
+  actionToService: Record<string, string>;
 }
 
 /* -------------------------------------------------------
- * Receipt (adapter-signed execution authorization proof)
+ * Receipt
  * ----------------------------------------------------- */
 
 export interface Receipt {
-  v: number;                            // receipt schema version
-  receiptId: string;                    // uuid
+  v: number;
+  receiptId: string;
   adapterId: string;
 
-  service: string;                      // which executor was selected
+  service: string;
+
   actorId: string;
   intent: string;
 
   intentHash: string;
   executeHash: string;
 
-  coreDecision: "PERMIT";               // receipt only minted on PERMIT
+  coreDecision: "PERMIT";
   coreTime?: string;
   coreIssuedAt?: string;
   coreExpiresAt?: string;
 
+  authorityKeyId?: string | null;
+
   issuedAt: string;
   expiresAt: string;
 
-  signature: string;                    // base64 signature over canonical receipt material
+  signature: string;
 }
 
 /* -------------------------------------------------------
- * Gate result (what gate.ts returns)
+ * Gate result
  * ----------------------------------------------------- */
 
 export interface AdapterGateResult {
@@ -137,6 +147,7 @@ export interface AdapterGateResult {
   service?: string;
   receipt?: Receipt;
 
-  // Optional: include upstream core decision info for logging/debug
+  forwardStatus?: number;
+
   core?: CoreExecuteResponse;
 }
