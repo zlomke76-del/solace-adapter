@@ -1,60 +1,69 @@
 // src/server.ts
 
 import express from "express";
+import { loadAdapterConfigFromEnv } from "./config";
+import { gateAndForward, authorizeOnly } from "./gate";
 import { asMessage } from "./errors";
-import { loadConfig } from "./config";
-import { handleGate } from "./gate";
 
 const app = express();
 app.use(express.json());
 
-// JSON parse error guard (TS-safe)
+// ------------------------------------------------------------
+// JSON parse guard
+// ------------------------------------------------------------
 app.use((err: any, _req: any, res: any, next: any) => {
-  if (err instanceof SyntaxError && err?.status === 400 && "body" in err) {
+  if (err instanceof SyntaxError) {
     return res.status(400).json({
       decision: "DENY",
       reason: "invalid_json",
-      message: err.message,
     });
   }
   next(err);
 });
 
-const config = loadConfig();
+const cfg = loadAdapterConfigFromEnv();
 
+// ------------------------------------------------------------
+// Health
+// ------------------------------------------------------------
 app.get("/health", (_req, res) => {
-  res.status(200).json({
+  res.json({
     status: "ok",
-    service: "solace-adapter",
+    adapterId: cfg.adapterId,
   });
 });
 
-app.post("/v1/gate", async (req, res) => {
+// ------------------------------------------------------------
+// Authorize (Phase 1)
+// ------------------------------------------------------------
+app.post("/v1/authorize", async (req, res) => {
   try {
-    const result = await handleGate(req.body, config);
-
-    if (result.decision !== "PERMIT") {
-      return res.status(200).json({
-        decision: "DENY",
-        reason: result.reason || "denied",
-      });
-    }
-
-    return res.status(200).json({
-      decision: "PERMIT",
-      service: result.service,
-      receipt: result.receipt,
-    });
+    const result = await authorizeOnly(cfg, req.body);
+    res.json(result);
   } catch (e) {
-    return res.status(200).json({
+    res.status(500).json({
       decision: "DENY",
-      reason: "adapter_error",
-      error: asMessage(e),
+      reason: asMessage(e),
     });
   }
 });
 
-const PORT = Number(process.env.PORT || 8788);
+// ------------------------------------------------------------
+// Gate + Forward (Phase 2)
+// ------------------------------------------------------------
+app.post("/v1/execute", async (req, res) => {
+  try {
+    const result = await gateAndForward(cfg, req.body);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({
+      decision: "DENY",
+      reason: asMessage(e),
+    });
+  }
+});
+
+const PORT = process.env.PORT || 8788;
 app.listen(PORT, () => {
-  console.log(`solace-adapter listening on ${PORT}`);
+  console.log(`Solace Adapter listening on ${PORT}`);
 });
