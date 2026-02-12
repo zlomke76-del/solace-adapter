@@ -1,54 +1,119 @@
-import { AdapterConfig, CoreExecuteResponse, ExecuteEnvelope } from "./types.js";
-import { FailClosedError } from "./errors.js";
+// src/coreClient.ts
 
-function withTimeout(ms: number): AbortController {
-  const ac = new AbortController();
-  setTimeout(() => ac.abort(), ms).unref?.();
-  return ac;
+import type { CoreAuthorizeResponse, CoreClientConfig, CoreExecuteResponse, GateRequestEnvelope } from "./types";
+import { FailClosedError } from "./errors";
+
+function withTimeout(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, cancel: () => clearTimeout(t) };
 }
 
-export async function callCoreExecute(
-  cfg: AdapterConfig,
-  body: ExecuteEnvelope
-): Promise<CoreExecuteResponse> {
-  const base = cfg.coreBaseUrl.replace(/\/+$/, "");
-  const path = (cfg.coreExecutePath || "/v1/execute").startsWith("/")
-    ? (cfg.coreExecutePath || "/v1/execute")
-    : `/${cfg.coreExecutePath || "v1/execute"}`;
-
-  const url = `${base}${path}`;
-  const timeoutMs = cfg.timeoutMs ?? 4000;
-  const ac = withTimeout(timeoutMs);
-
-  let resp: Response;
+async function safeJson(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text) return null;
   try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: ac.signal
-    });
-  } catch (e: any) {
-    // FAIL CLOSED on network / timeout / DNS, etc.
-    throw new FailClosedError(String(e?.message || "core_unreachable"));
-  }
-
-  // FAIL CLOSED on non-2xx per contract
-  if (!resp.ok) {
-    throw new FailClosedError(`core_http_${resp.status}`);
-  }
-
-  let json: any;
-  try {
-    json = await resp.json();
+    return JSON.parse(text);
   } catch {
-    throw new FailClosedError("core_malformed_json");
+    return { _raw: text };
+  }
+}
+
+export class SolaceCoreClient {
+  private cfg: CoreClientConfig;
+
+  constructor(cfg: CoreClientConfig) {
+    this.cfg = {
+      timeoutMs: 8000,
+      headers: {},
+      ...cfg,
+    };
+    if (!this.cfg.coreBaseUrl) throw new FailClosedError("missing_coreBaseUrl");
   }
 
-  // FAIL CLOSED on malformed decision
-  if (!json || typeof json.decision !== "string") {
-    throw new FailClosedError("core_malformed_response");
+  private base(urlPath: string): string {
+    const base = this.cfg.coreBaseUrl.replace(/\/+$/, "");
+    const path = urlPath.startsWith("/") ? urlPath : `/${urlPath}`;
+    return `${base}${path}`;
   }
 
-  return json as CoreExecuteResponse;
+  async authorize(intentObj: unknown): Promise<CoreAuthorizeResponse> {
+    const { signal, cancel } = withTimeout(this.cfg.timeoutMs ?? 8000);
+    try {
+      const res = await fetch(this.base("/v1/authorize"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(this.cfg.headers || {}),
+        },
+        body: JSON.stringify(intentObj),
+        signal,
+      });
+
+      // Contract: any error should be treated as DENY by integrators.
+      if (!res.ok) {
+        return { decision: "DENY", reason: `core_http_${res.status}` };
+      }
+
+      const data = await safeJson(res);
+      if (!data || typeof data.decision !== "string") {
+        return { decision: "DENY", reason: "core_malformed_response" };
+      }
+
+      return {
+        decision: data.decision,
+        reason: typeof data.reason === "string" ? data.reason : "core_reason_missing",
+      };
+    } catch (e) {
+      // Fail-closed at the adapter boundary
+      return { decision: "DENY", reason: "core_unreachable" };
+    } finally {
+      cancel();
+    }
+  }
+
+  async execute(envelope: GateRequestEnvelope): Promise<CoreExecuteResponse> {
+    const { signal, cancel } = withTimeout(this.cfg.timeoutMs ?? 8000);
+    try {
+      const res = await fetch(this.base("/v1/execute"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(this.cfg.headers || {}),
+        },
+        body: JSON.stringify(envelope),
+        signal,
+      });
+
+      // IMPORTANT: Core itself returns 200 with decision=DENY for most failures.
+      // But if core is throwing 5xx or network breaks, adapter must fail-closed.
+      if (!res.ok) {
+        return { decision: "DENY", reason: `core_http_${res.status}` };
+      }
+
+      const data = await safeJson(res);
+      if (!data || typeof data.decision !== "string") {
+        return { decision: "DENY", reason: "core_malformed_response" };
+      }
+
+      return {
+        decision: data.decision,
+        reason: typeof data.reason === "string" ? data.reason : undefined,
+        executeHash: typeof data.executeHash === "string" ? data.executeHash : undefined,
+        intentHash: typeof data.intentHash === "string" ? data.intentHash : undefined,
+        issuedAt: typeof data.issuedAt === "string" ? data.issuedAt : undefined,
+        expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : undefined,
+        time: typeof data.time === "string" ? data.time : undefined,
+        authorityKeyId:
+          typeof data.authorityKeyId === "string" || data.authorityKeyId === null
+            ? data.authorityKeyId
+            : undefined,
+        error: typeof data.error === "string" ? data.error : undefined,
+      };
+    } catch {
+      return { decision: "DENY", reason: "core_unreachable" };
+    } finally {
+      cancel();
+    }
+  }
 }
