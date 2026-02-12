@@ -38,10 +38,10 @@ export interface ActionIntent {
  * Execution payloads ARE JSON objects and may contain arbitrary fields.
  * This can safely extend JsonObject because all fields are JsonValue.
  */
-export interface ExecutionPayload {
-  [key: string]: JsonValue;
+export type ExecutionPayload = {
   action?: string;
-}
+} & JsonObject;
+
 
 export interface Acceptance {
   issuer: string;
