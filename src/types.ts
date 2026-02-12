@@ -1,63 +1,65 @@
 // src/types.ts
 
-/* -------------------------------------------------------
- * Loose JSON (adapter forwards arbitrary payloads)
- * ----------------------------------------------------- */
-
+// ------------------------------------------------------------
+// JSON primitives
+// ------------------------------------------------------------
 export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
-
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject {
-  [key: string]: any;
+  [key: string]: JsonValue;
 }
 
-export interface JsonArray extends Array<JsonValue> {}
-
-/* -------------------------------------------------------
- * Intent / Envelope
- * ----------------------------------------------------- */
-
+// ------------------------------------------------------------
+// Intent / Execution Envelope
+// ------------------------------------------------------------
 export interface ActorRef {
   id: string;
 }
 
-export interface IntentObject {
-  intent: string;
+export interface ActionIntent extends JsonObject {
   actor: ActorRef;
+  intent: string;
   context?: JsonObject;
-  [k: string]: any;
+}
+
+export interface ExecutionPayload extends JsonObject {
+  action?: string;
+}
+
+export interface Acceptance {
+  issuer: string;
+  actorId: string;
+  intent: string;
+  executeHash: string;
+  issuedAt: string;
+  expiresAt: string;
+  signature: string;
+  authorityKeyId?: string | null;
 }
 
 export interface GateRequestEnvelope {
-  intent: IntentObject;
-  execute: JsonObject;
-  acceptance: JsonObject;
+  intent: ActionIntent;
+  execute: ExecutionPayload;
+  acceptance: Acceptance;
 }
 
-/* -------------------------------------------------------
- * Core client config + responses
- * ----------------------------------------------------- */
-
+// ------------------------------------------------------------
+// Core Client
+// ------------------------------------------------------------
 export interface CoreClientConfig {
   coreBaseUrl: string;
-  executePath?: string;
-  authorizePath?: string;
-  timeoutMs?: number;
+  timeoutMs: number;
   headers?: Record<string, string>;
 }
 
-export type CoreDecision = "PERMIT" | "DENY" | "ESCALATE";
-
 export interface CoreAuthorizeResponse {
-  decision: CoreDecision;
+  decision: "PERMIT" | "DENY" | "ESCALATE";
   reason?: string;
-  error?: string;
 }
 
 export interface CoreExecuteResponse {
-  decision: "PERMIT" | "DENY";
+  decision: "PERMIT" | "DENY" | "ESCALATE";
   reason?: string;
-  error?: string;
 
   executeHash?: string;
   intentHash?: string;
@@ -69,85 +71,61 @@ export interface CoreExecuteResponse {
   authorityKeyId?: string | null;
 }
 
-/* -------------------------------------------------------
- * Forward targets
- * ----------------------------------------------------- */
-
+// ------------------------------------------------------------
+// Forwarding Targets
+// ------------------------------------------------------------
 export interface ForwardTarget {
   service: string;
   url: string;
-  method?: "POST" | "PUT";
-  timeoutMs?: number;
-  headers?: Record<string, string>;
-
-  // Your config.ts is passing this:
   bearerToken?: string;
 }
-
-/* -------------------------------------------------------
- * Adapter config
- * ----------------------------------------------------- */
 
 export interface AdapterForwardingConfig {
   adapterId: string;
 
   receiptPrivateKeyPem: string;
   receiptPublicKeyPem: string;
-  receiptTtlSeconds: number;
-
+  receiptTtlSeconds?: number;
   clockSkewSeconds?: number;
 
   core: CoreClientConfig;
 
-  // Your gate.ts is referencing `targets`
-  targets: Record<string, ForwardTarget>;
-
-  // Intent string -> service key
   actionToService: Record<string, string>;
+  targets: Record<string, ForwardTarget>;
 }
 
-/* -------------------------------------------------------
- * Receipt
- * ----------------------------------------------------- */
-
+// ------------------------------------------------------------
+// Receipt
+// ------------------------------------------------------------
 export interface Receipt {
   v: number;
-  receiptId: string;
   adapterId: string;
-
   service: string;
-
   actorId: string;
   intent: string;
-
   intentHash: string;
   executeHash: string;
-
-  coreDecision: "PERMIT";
-  coreTime?: string;
+  authorityKeyId?: string | null;
   coreIssuedAt?: string;
   coreExpiresAt?: string;
-
-  authorityKeyId?: string | null;
-
+  coreTime?: string;
   issuedAt: string;
   expiresAt: string;
-
   signature: string;
 }
 
-/* -------------------------------------------------------
- * Gate result
- * ----------------------------------------------------- */
-
+// ------------------------------------------------------------
+// Gate Result
+// ------------------------------------------------------------
 export interface AdapterGateResult {
-  decision: "PERMIT" | "DENY";
+  decision: "PERMIT" | "DENY" | "ESCALATE";
   reason?: string;
 
-  service?: string;
   receipt?: Receipt;
-
   forwardStatus?: number;
+  forwardBody?: unknown;
 
-  core?: CoreExecuteResponse;
+  executeHash?: string;
+  intentHash?: string;
+  authorityKeyId?: string | null;
 }
