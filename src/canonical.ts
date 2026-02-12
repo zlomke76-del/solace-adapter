@@ -1,28 +1,38 @@
+// src/canonical.ts
+
 import crypto from "crypto";
+import type { JsonValue } from "./types";
 
 function stableSort(value: any): any {
   if (value === null || value === undefined) return value;
+
   if (Array.isArray(value)) return value.map(stableSort);
+
   if (typeof value === "object") {
-    const out: Record<string, any> = {};
+    const out: any = {};
     for (const k of Object.keys(value).sort()) out[k] = stableSort(value[k]);
     return out;
   }
+
   return value;
 }
 
-export function canonical(obj: any): string {
-  return JSON.stringify(stableSort(obj));
+export function canonicalize(value: JsonValue | unknown): string {
+  return JSON.stringify(stableSort(value as any));
 }
 
 export function sha256Hex(input: string): string {
   return crypto.createHash("sha256").update(String(input)).digest("hex");
 }
 
-export function computeExecuteHash(execute: any): string {
-  return sha256Hex(canonical(execute));
+export function computeIntentHash(intent: unknown): string {
+  return sha256Hex(canonicalize(intent));
 }
 
-export function computeIntentHash(intent: any): string {
-  return sha256Hex(canonical(intent));
+export function computeExecuteHash(execute: unknown): string {
+  return sha256Hex(canonicalize(execute));
+}
+
+export function computeAcceptanceHash(acceptance: unknown): string {
+  return sha256Hex(canonicalize(acceptance));
 }
