@@ -127,6 +127,8 @@ export interface AdapterForwardingConfig {
 export interface Receipt {
   v: number;
 
+  receiptId: string;
+
   adapterId: string;
   service: string;
 
@@ -136,6 +138,7 @@ export interface Receipt {
   intentHash: string;
   executeHash: string;
 
+  coreDecision: "PERMIT";
   authorityKeyId?: string | null;
 
   coreIssuedAt?: string;
@@ -147,6 +150,7 @@ export interface Receipt {
 
   signature: string;
 }
+
 
 // ------------------------------------------------------------
 // Gate Result
