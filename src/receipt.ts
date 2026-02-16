@@ -1,9 +1,9 @@
 // src/receipt.ts
 
 import crypto from "crypto";
-import { canonicalize, sha256Hex } from "./canonical";
-import type { Receipt } from "./types";
-import { ConfigError } from "./errors";
+import { canonicalize, sha256Hex } from "./canonical.js";
+import type { Receipt } from "./types.js";
+import { ConfigError } from "./errors.js";
 
 // NOTE: We use Ed25519 receipts by default (simple + robust). PEM is required.
 // crypto.sign(null, data, privateKey) works for Ed25519 in Node.
