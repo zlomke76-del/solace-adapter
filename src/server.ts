@@ -9,6 +9,15 @@ const app = express();
 app.use(express.json());
 
 // ------------------------------------------------------------
+// 🔍 RUNTIME ENV PROOF (DO NOT REMOVE YET)
+// ------------------------------------------------------------
+console.log("=== ENV DEBUG START ===");
+console.log("SOLACE_ADAPTER_ID:", process.env.SOLACE_ADAPTER_ID);
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("All ENV keys:", Object.keys(process.env));
+console.log("=== ENV DEBUG END ===");
+
+// ------------------------------------------------------------
 // JSON parse guard
 // ------------------------------------------------------------
 app.use((err: any, _req: any, res: any, next: any) => {
@@ -21,6 +30,7 @@ app.use((err: any, _req: any, res: any, next: any) => {
   next(err);
 });
 
+// 🔥 This is where it is currently crashing
 const cfg = loadAdapterConfigFromEnv();
 
 // ------------------------------------------------------------
