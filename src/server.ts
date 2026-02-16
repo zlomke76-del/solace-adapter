@@ -1,15 +1,15 @@
 // src/server.ts
 
 import express from "express";
+import fetch from "node-fetch";
 import { loadAdapterConfigFromEnv } from "./config.js";
-import { gateAndForward, authorizeOnly } from "./gate.js";
+import { authorizeOnly } from "./gate.js";
 import { asMessage } from "./errors.js";
 
 const app = express();
-app.use(express.json());
 
 // ------------------------------------------------------------
-// 🔍 RUNTIME ENV PROOF (DO NOT REMOVE YET)
+// 🔍 RUNTIME ENV PROOF (KEEP IF YOU STILL NEED DEBUG)
 // ------------------------------------------------------------
 console.log("=== ENV DEBUG START ===");
 console.log("SOLACE_ADAPTER_ID:", process.env.SOLACE_ADAPTER_ID);
@@ -18,19 +18,8 @@ console.log("All ENV keys:", Object.keys(process.env));
 console.log("=== ENV DEBUG END ===");
 
 // ------------------------------------------------------------
-// JSON parse guard
+// Load config
 // ------------------------------------------------------------
-app.use((err: any, _req: any, res: any, next: any) => {
-  if (err instanceof SyntaxError) {
-    return res.status(400).json({
-      decision: "DENY",
-      reason: "invalid_json",
-    });
-  }
-  next(err);
-});
-
-// 🔥 This is where it is currently crashing
 const cfg = loadAdapterConfigFromEnv();
 
 // ------------------------------------------------------------
@@ -44,36 +33,57 @@ app.get("/health", (_req, res) => {
 });
 
 // ------------------------------------------------------------
-// Authorize (Phase 1)
+// Authorize (JSON parsed — safe)
 // ------------------------------------------------------------
-app.post("/v1/authorize", async (req, res) => {
-  try {
-    const result = await authorizeOnly(cfg, req.body);
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({
-      decision: "DENY",
-      reason: asMessage(e),
-    });
+app.post(
+  "/v1/authorize",
+  express.json(),
+  async (req, res) => {
+    try {
+      const result = await authorizeOnly(cfg, req.body);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({
+        decision: "DENY",
+        reason: asMessage(e),
+      });
+    }
   }
-});
+);
 
 // ------------------------------------------------------------
-// Gate + Forward (Phase 2)
+// Execute (RAW passthrough — CRITICAL)
 // ------------------------------------------------------------
-app.post("/v1/execute", async (req, res) => {
-  try {
-    const result = await gateAndForward(cfg, req.body);
-    res.json(result);
-  } catch (e) {
-    res.status(500).json({
-      decision: "DENY",
-      reason: asMessage(e),
-    });
+app.post(
+  "/v1/execute",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const coreResponse = await fetch(
+        `${cfg.coreUrl}/v1/execute`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: req.body, // ← forward raw buffer untouched
+        }
+      );
+
+      const text = await coreResponse.text();
+
+      res.status(coreResponse.status).send(text);
+    } catch (e) {
+      res.status(500).json({
+        decision: "DENY",
+        reason: asMessage(e),
+      });
+    }
   }
-});
+);
 
 const PORT = process.env.PORT || 8788;
+
 app.listen(PORT, () => {
   console.log(`Solace Adapter listening on ${PORT}`);
 });
