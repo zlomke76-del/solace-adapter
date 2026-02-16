@@ -1,6 +1,7 @@
 // src/server.ts
 
 import express from "express";
+import crypto from "crypto";
 import { loadAdapterConfigFromEnv } from "./config.js";
 import { authorizeOnly } from "./gate.js";
 import { asMessage } from "./errors.js";
@@ -8,7 +9,7 @@ import { asMessage } from "./errors.js";
 const app = express();
 
 // ------------------------------------------------------------
-// 🔍 RUNTIME ENV PROOF (REMOVE LATER)
+// 🔍 ENV DEBUG (REMOVE WHEN STABLE)
 // ------------------------------------------------------------
 console.log("=== ENV DEBUG START ===");
 console.log("SOLACE_ADAPTER_ID:", process.env.SOLACE_ADAPTER_ID);
@@ -16,7 +17,7 @@ console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("=== ENV DEBUG END ===");
 
 // ------------------------------------------------------------
-// Load config
+// Load config (throws if invalid — good)
 // ------------------------------------------------------------
 const cfg = loadAdapterConfigFromEnv();
 
@@ -56,6 +57,14 @@ app.post(
   "/v1/execute",
   express.raw({ type: "application/json" }),
   async (req, res) => {
+    const requestId = crypto.randomUUID();
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      cfg.core.timeoutMs
+    );
+
     try {
       const coreResponse = await fetch(
         `${cfg.core.coreBaseUrl}/v1/execute`,
@@ -63,19 +72,34 @@ app.post(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "x-solace-adapter-id": cfg.adapterId,
+            "x-solace-request-id": requestId,
             ...cfg.core.headers,
           },
-          body: req.body,
+          body: req.body, // 🔒 forward raw buffer untouched
+          signal: controller.signal,
         }
       );
 
+      clearTimeout(timeout);
+
       const text = await coreResponse.text();
 
-      res.status(coreResponse.status).send(text);
-    } catch (e) {
-      res.status(500).json({
+      res
+        .status(coreResponse.status)
+        .setHeader("x-solace-request-id", requestId)
+        .send(text);
+    } catch (e: any) {
+      clearTimeout(timeout);
+
+      // Fail closed if Core unreachable
+      res.status(503).json({
         decision: "DENY",
-        reason: asMessage(e),
+        reason:
+          e?.name === "AbortError"
+            ? "core_timeout"
+            : "core_unreachable",
+        requestId,
       });
     }
   }
