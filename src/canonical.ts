@@ -1,7 +1,7 @@
 // src/canonical.ts
 
 import crypto from "crypto";
-import type { JsonValue } from "./types";
+import type { JsonValue } from "./types.js";
 
 function stableSort(value: any): any {
   if (value === null || value === undefined) return value;
