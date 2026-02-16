@@ -1,11 +1,9 @@
-// src/index.ts
-
-export * from "./types";
-export * from "./errors";
-export * from "./config";
-export * from "./canonical";
-export * from "./coreClient";
-export * from "./receipt";
-export * from "./executorVerifier";
-export * from "./forwarding";
-export * from "./gate";
+export * from "./types.js";
+export * from "./errors.js";
+export * from "./config.js";
+export * from "./canonical.js";
+export * from "./coreClient.js";
+export * from "./receipt.js";
+export * from "./executorVerifier.js";
+export * from "./forwarding.js";
+export * from "./gate.js";
