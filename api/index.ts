@@ -1,3 +1,2 @@
-import app from "../dist/server.js"; // IMPORTANT: dist after build
-
+import app from "../src/app.js";
 export default app;
