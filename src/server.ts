@@ -1,7 +1,6 @@
 // src/server.ts
 
 import express from "express";
-import fetch from "node-fetch";
 import { loadAdapterConfigFromEnv } from "./config.js";
 import { authorizeOnly } from "./gate.js";
 import { asMessage } from "./errors.js";
