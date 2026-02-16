@@ -7,9 +7,9 @@
 // - enforce idempotency in a real database constraint
 
 import express from "express";
-import type { JsonObject } from "./types";
-import { verifyExecutorRequest } from "./executorVerifier";
-import { ConfigError } from "./errors";
+import type { JsonObject } from "./types.js";
+import { verifyExecutorRequest } from "./executorVerifier.js";
+import { ConfigError } from "./errors.js";
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
