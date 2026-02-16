@@ -1,8 +1,8 @@
 // src/config.ts
 
 import fs from "fs";
-import type { AdapterForwardingConfig, CoreClientConfig, ForwardTarget } from "./types";
-import { ConfigError } from "./errors";
+import type { AdapterForwardingConfig, CoreClientConfig, ForwardTarget } from "./types.js";
+import { ConfigError } from "./errors.js";
 
 function readFileIfExists(p: string): string | null {
   try {
