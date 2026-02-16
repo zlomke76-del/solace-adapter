@@ -4,12 +4,12 @@ import type {
   AdapterForwardingConfig,
   AdapterGateResult,
   GateRequestEnvelope,
-} from "./types";
-import { computeExecuteHash, computeIntentHash } from "./canonical";
-import { SolaceCoreClient } from "./coreClient";
-import { signReceipt } from "./receipt";
-import { forwardToExecutor } from "./forwarding";
-import { ConfigError } from "./errors";
+} from "./types.js";
+import { computeExecuteHash, computeIntentHash } from "./canonical.js";
+import { SolaceCoreClient } from "./coreClient.js";
+import { signReceipt } from "./receipt.js";
+import { forwardToExecutor } from "./forwarding.js";
+import { ConfigError } from "./errors.js";
 
 function requireCfg(cfg: AdapterForwardingConfig) {
   if (!cfg) throw new ConfigError("missing_adapter_config");
