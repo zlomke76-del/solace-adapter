@@ -105,8 +105,8 @@ app.post(
   }
 );
 
-const PORT = process.env.PORT || 8788;
+// ------------------------------------------------------------
+// IMPORTANT: DO NOT call app.listen() on Vercel
+// ------------------------------------------------------------
 
-app.listen(PORT, () => {
-  console.log(`Solace Adapter listening on ${PORT}`);
-});
+export default app;
