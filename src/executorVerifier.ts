@@ -14,9 +14,9 @@
 //   - enforce intended service binding (receipt.service)
 //   - enforce idempotency (receiptId or executeHash) on their side
 
-import { computeExecuteHash } from "./canonical";
-import { verifyReceipt } from "./receipt";
-import type { Receipt } from "./types";
+import { computeExecuteHash } from "./canonical.js";
+import { verifyReceipt } from "./receipt.js";
+import type { Receipt } from "./types.js";
 
 export function decodeReceiptHeader(headerValue: string | undefined): Receipt | null {
   if (!headerValue) return null;
