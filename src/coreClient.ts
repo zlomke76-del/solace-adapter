@@ -5,8 +5,8 @@ import type {
   CoreClientConfig,
   CoreExecuteResponse,
   GateRequestEnvelope,
-} from "./types";
-import { FailClosedError } from "./errors";
+} from "./types.js";
+import { FailClosedError } from "./errors.js";
 
 // ------------------------------------------------------------
 // Timeout helper
