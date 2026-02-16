@@ -1,7 +1,7 @@
 // src/forwarding.ts
 
-import type { AdapterForwardingConfig, GateRequestEnvelope, Receipt } from "./types";
-import { ForwardingError } from "./errors";
+import type { AdapterForwardingConfig, GateRequestEnvelope, Receipt } from "./types.js";
+import { ForwardingError } from "./errors.js";
 
 async function safeJson(res: Response): Promise<any> {
   const text = await res.text();
