@@ -1,9 +1,9 @@
 // src/server.ts
 
 import express from "express";
-import { loadAdapterConfigFromEnv } from "./config";
-import { gateAndForward, authorizeOnly } from "./gate";
-import { asMessage } from "./errors";
+import { loadAdapterConfigFromEnv } from "./config.js";
+import { gateAndForward, authorizeOnly } from "./gate.js";
+import { asMessage } from "./errors.js";
 
 const app = express();
 app.use(express.json());
