@@ -8,12 +8,11 @@ import { asMessage } from "./errors.js";
 const app = express();
 
 // ------------------------------------------------------------
-// 🔍 RUNTIME ENV PROOF (KEEP IF YOU STILL NEED DEBUG)
+// 🔍 RUNTIME ENV PROOF (REMOVE LATER)
 // ------------------------------------------------------------
 console.log("=== ENV DEBUG START ===");
 console.log("SOLACE_ADAPTER_ID:", process.env.SOLACE_ADAPTER_ID);
 console.log("NODE_ENV:", process.env.NODE_ENV);
-console.log("All ENV keys:", Object.keys(process.env));
 console.log("=== ENV DEBUG END ===");
 
 // ------------------------------------------------------------
@@ -59,13 +58,14 @@ app.post(
   async (req, res) => {
     try {
       const coreResponse = await fetch(
-        `${cfg.coreUrl}/v1/execute`,
+        `${cfg.core.coreBaseUrl}/v1/execute`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...cfg.core.headers,
           },
-          body: req.body, // ← forward raw buffer untouched
+          body: req.body,
         }
       );
 
