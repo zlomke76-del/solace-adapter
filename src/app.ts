@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
-import rateLimitModule from "express-rate-limit";
+import { createRequire } from "module";
 import { createClient } from "@supabase/supabase-js";
 import { loadAdapterConfigFromEnv } from "./config.js";
 import { gateAndForward, authorizeOnly } from "./gate.js";
@@ -8,12 +8,11 @@ import { asMessage } from "./errors.js";
 
 /**
  * ------------------------------------------------------------
- * Fix CommonJS default export in ESM
+ * Proper CJS import for express-rate-limit under NodeNext
  * ------------------------------------------------------------
  */
-const rateLimit =
-  (rateLimitModule as unknown as { default?: typeof rateLimitModule })
-    .default ?? rateLimitModule;
+const require = createRequire(import.meta.url);
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 const cfg = loadAdapterConfigFromEnv();
