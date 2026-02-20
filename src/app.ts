@@ -10,7 +10,7 @@ const cfg = loadAdapterConfigFromEnv();
 
 /**
  * ------------------------------------------------------------
- * Supabase (service role) for API key validation
+ * Supabase (service role)
  * ------------------------------------------------------------
  */
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -41,13 +41,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 /**
  * ------------------------------------------------------------
- * Health
+ * Health (includes Supabase test)
  * ------------------------------------------------------------
  */
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", async (_req: Request, res: Response) => {
+  const { error } = await supabase
+    .from("solace_api_keys")
+    .select("id")
+    .limit(1);
+
   res.json({
     status: "ok",
     adapterId: cfg.adapterId,
+    supabaseConnected: !error,
+    supabaseError: error?.message || null,
   });
 });
 
@@ -62,9 +69,9 @@ async function requireTenant(
   next: NextFunction
 ) {
   const orgId = String(req.header("x-solace-org-id") || "").trim();
-  const apiKey = String(req.header("x-solace-api-key") || "").trim();
+  const apiKeyRaw = String(req.header("x-solace-api-key") || "");
 
-  if (!orgId || !apiKey) {
+  if (!orgId || !apiKeyRaw) {
     return res.status(401).json({
       decision: "DENY",
       reason: "missing_x_solace_org_id_or_x_solace_api_key",
@@ -72,7 +79,19 @@ async function requireTenant(
     });
   }
 
-  const keyHash = crypto.createHash("sha256").update(apiKey).digest("hex");
+  // IMPORTANT: trim but do NOT lowercase or modify
+  const apiKey = apiKeyRaw.trim();
+
+  const keyHash = crypto
+    .createHash("sha256")
+    .update(apiKey, "utf8")
+    .digest("hex");
+
+  // Temporary debug logs (safe to remove later)
+  console.log("---- TENANT DEBUG ----");
+  console.log("ORG:", orgId);
+  console.log("RAW LENGTH:", apiKey.length);
+  console.log("HASH:", keyHash);
 
   const { data, error } = await supabase
     .from("solace_api_keys")
@@ -83,9 +102,11 @@ async function requireTenant(
     .maybeSingle();
 
   if (error) {
+    console.error("Supabase error:", error);
     return res.status(503).json({
       decision: "DENY",
       reason: "api_key_lookup_failed",
+      detail: error.message,
       requestId: (req as any).solaceRequestId,
     });
   }
@@ -98,7 +119,6 @@ async function requireTenant(
     });
   }
 
-  // Non-blocking last_used_at update (no await, no catch)
   void supabase
     .from("solace_api_keys")
     .update({ last_used_at: new Date().toISOString() })
@@ -114,7 +134,7 @@ async function requireTenant(
 
 /**
  * ------------------------------------------------------------
- * Public Gate Endpoint (runtime enforcement boundary)
+ * Public Gate Endpoint
  * ------------------------------------------------------------
  */
 app.post(
