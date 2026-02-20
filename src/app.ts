@@ -98,13 +98,11 @@ async function requireTenant(
     });
   }
 
-  // Non-blocking last_used update
-  supabase
+  // Non-blocking last_used_at update (no await, no catch)
+  void supabase
     .from("solace_api_keys")
     .update({ last_used_at: new Date().toISOString() })
-    .eq("id", data.id)
-    .then(() => {})
-    .catch(() => {});
+    .eq("id", data.id);
 
   (req as any).solaceTenant = {
     organizationId: orgId,
@@ -116,7 +114,7 @@ async function requireTenant(
 
 /**
  * ------------------------------------------------------------
- * Public Gate Endpoint
+ * Public Gate Endpoint (runtime enforcement boundary)
  * ------------------------------------------------------------
  */
 app.post(
