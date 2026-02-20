@@ -26,22 +26,16 @@ export interface ActionIntent {
   actor: ActorRef;
   intent: string;
 
-  // Context can be JSON-serializable.
   context?: JsonObject;
-
-  // Optional room for additional semantic metadata (still JSON-safe).
-  // Keep it optional and JSON-only so hashing stays deterministic.
   meta?: JsonObject;
 }
 
 /**
  * Execution payloads ARE JSON objects and may contain arbitrary fields.
- * This can safely extend JsonObject because all fields are JsonValue.
  */
 export type ExecutionPayload = {
   action?: string;
 } & JsonObject;
-
 
 export interface Acceptance {
   issuer: string;
@@ -52,10 +46,7 @@ export interface Acceptance {
   expiresAt: string;
   signature: string;
 
-  // Optional registry key selector (preferred camel; allow null)
   authorityKeyId?: string | null;
-
-  // Optional legacy snake variant (some clients may send this)
   authority_key_id?: string | null;
 }
 
@@ -77,8 +68,6 @@ export interface CoreClientConfig {
 export interface CoreAuthorizeResponse {
   decision: "PERMIT" | "DENY" | "ESCALATE";
   reason?: string;
-
-  // Optional error surface (if core returns error details)
   error?: string;
 }
 
@@ -94,8 +83,6 @@ export interface CoreExecuteResponse {
   time?: string;
 
   authorityKeyId?: string | null;
-
-  // So coreClient can safely return { error: "..." } without TS complaining
   error?: string;
 }
 
@@ -118,7 +105,7 @@ export interface AdapterForwardingConfig {
 
   core: CoreClientConfig;
 
-  actionToService: Record<string, string>;
+  // Prefix-routed services only
   targets: Record<string, ForwardTarget>;
 }
 
@@ -151,7 +138,6 @@ export interface Receipt {
 
   signature: string;
 }
-
 
 // ------------------------------------------------------------
 // Gate Result
