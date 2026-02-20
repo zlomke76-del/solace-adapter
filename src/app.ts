@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 import { loadAdapterConfigFromEnv } from "./config.js";
 import { gateAndForward, authorizeOnly } from "./gate.js";
@@ -67,31 +68,10 @@ app.get("/health", async (_req: Request, res: Response) => {
 app.get("/v1/info", (_req: Request, res: Response) => {
   res.json({
     version: "v1",
-    baseUrl: "https://solace-adapter.vercel.app",
-    endpoints: {
-      health: "GET /health",
-      gate: "POST /v1/gate",
-      authorize: "POST /v1/authorize",
-    },
-    authentication: {
-      headers: [
-        "x-solace-org-id",
-        "x-solace-api-key",
-        "Content-Type: application/json",
-      ],
-      description:
-        "API key is organization-scoped. Adapter hashes key using SHA-256 and validates active status.",
-    },
-    executionContract: {
-      requiredEnvelope: [
-        "intent.actor.id",
-        "intent.intent",
-        "execute.action",
-        "acceptance",
-      ],
-      actionFormat: "<service>:<operation>",
-      failClosed: true,
-    },
+    rateLimit: {
+      windowSeconds: Number(process.env.SOLACE_RATE_LIMIT_WINDOW_SECONDS || 60),
+      maxRequests: Number(process.env.SOLACE_RATE_LIMIT_MAX || 100)
+    }
   });
 });
 
@@ -117,7 +97,6 @@ async function requireTenant(
   }
 
   const apiKey = apiKeyRaw.trim();
-
   const keyHash = crypto
     .createHash("sha256")
     .update(apiKey, "utf8")
@@ -135,7 +114,6 @@ async function requireTenant(
     return res.status(503).json({
       decision: "DENY",
       reason: "api_key_lookup_failed",
-      detail: error.message,
       requestId: (req as any).solaceRequestId,
     });
   }
@@ -148,11 +126,6 @@ async function requireTenant(
     });
   }
 
-  void supabase
-    .from("solace_api_keys")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", data.id);
-
   (req as any).solaceTenant = {
     organizationId: orgId,
     apiKeyId: data.id,
@@ -163,12 +136,35 @@ async function requireTenant(
 
 /**
  * ------------------------------------------------------------
- * Public Gate Endpoint
+ * Per-Tenant Rate Limiter
+ * ------------------------------------------------------------
+ */
+const tenantRateLimiter = rateLimit({
+  windowMs:
+    Number(process.env.SOLACE_RATE_LIMIT_WINDOW_SECONDS || 60) * 1000,
+  max: Number(process.env.SOLACE_RATE_LIMIT_MAX || 100),
+  keyGenerator: (req: Request) =>
+    (req as any).solaceTenant?.organizationId || "unknown",
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      decision: "DENY",
+      reason: "rate_limit_exceeded",
+      requestId: (req as any).solaceRequestId,
+    });
+  },
+});
+
+/**
+ * ------------------------------------------------------------
+ * Gate Endpoint
  * ------------------------------------------------------------
  */
 app.post(
   "/v1/gate",
   requireTenant,
+  tenantRateLimiter,
   express.json({ limit: "512kb" }),
   async (req: Request, res: Response) => {
     try {
@@ -202,6 +198,8 @@ app.post(
  */
 app.post(
   "/v1/authorize",
+  requireTenant,
+  tenantRateLimiter,
   express.json({ limit: "256kb" }),
   async (req: Request, res: Response) => {
     try {
