@@ -85,6 +85,94 @@ app.get("/v1/info", (_req: Request, res: Response) => {
 
 /**
  * ------------------------------------------------------------
+ * Public Registration Endpoint (Enterprise Intake)
+ * ------------------------------------------------------------
+ */
+app.post(
+  "/v1/register",
+  express.json({ limit: "256kb" }),
+  async (req: Request, res: Response) => {
+    try {
+      const {
+        legal_name,
+        legal_entity_type,
+        jurisdiction,
+        registration_id,
+        contact_email,
+        use_case,
+        environment,
+        public_key,
+      } = req.body || {};
+
+      if (
+        !legal_name ||
+        !legal_entity_type ||
+        !jurisdiction ||
+        !contact_email ||
+        !use_case ||
+        !environment ||
+        !public_key
+      ) {
+        return res.status(400).json({
+          status: "error",
+          reason: "missing_required_fields",
+        });
+      }
+
+      if (!["staging", "production"].includes(environment)) {
+        return res.status(400).json({
+          status: "error",
+          reason: "invalid_environment",
+        });
+      }
+
+      if (!public_key.includes("BEGIN PUBLIC KEY")) {
+        return res.status(400).json({
+          status: "error",
+          reason: "invalid_public_key_format",
+        });
+      }
+
+      const { data, error } = await supabase
+        .from("solace_client_registrations")
+        .insert({
+          legal_name,
+          legal_entity_type,
+          jurisdiction,
+          registration_id: registration_id || null,
+          contact_email,
+          use_case,
+          environment,
+          requested_public_key: public_key,
+          status: "pending",
+        })
+        .select("id, status")
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          status: "error",
+          reason: "registration_insert_failed",
+          detail: error.message,
+        });
+      }
+
+      return res.status(201).json({
+        status: "submitted",
+        registration_id: data.id,
+        review_status: data.status,
+      });
+    } catch (e) {
+      return res.status(500).json({
+        status: "error",
+        reason: asMessage(e),
+      });
+    }
+  }
+);
+
+/**
+ * ------------------------------------------------------------
  * Tenant authentication middleware
  * ------------------------------------------------------------
  */
