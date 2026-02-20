@@ -1,58 +1,15 @@
-// scripts/provision-api-key.ts
-// Provision a tenant API key for Solace Adapter
-// - Generates a high-entropy raw API key (shown ONCE)
-// - Stores only SHA-256 hash in Supabase (solace_api_keys.key_hash)
-// - Binds key to organization_id and status=active
+// scripts/provision-client.ts
+// Full client provisioning for Solace Adapter
+// - Generates org API key (hashed)
+// - Generates Ed25519 keypair
+// - Stores public key in solace_authority_keys
+// - Outputs private key ONCE
 //
 // Usage:
-//   node --loader ts-node/esm scripts/provision-api-key.ts --org <ORG_UUID> [--label "Customer A"] [--status active|revoked]
-//
-// Required env:
-//   SUPABASE_URL
-//   SUPABASE_SERVICE_ROLE_KEY  (or SUPABASE_SERVICE_ROLE / SUPABASE_SERVICE_KEY)
+// node --loader ts-node/esm scripts/provision-client.ts --org <ORG_UUID> --label "Customer A"
 
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
-
-type Args = {
-  org?: string;
-  label?: string;
-  status?: string;
-};
-
-function parseArgs(argv: string[]): Args {
-  const out: Args = {};
-  for (let i = 2; i < argv.length; i++) {
-    const a = argv[i];
-
-    if (a === "--org") out.org = argv[++i];
-    else if (a === "--label") out.label = argv[++i];
-    else if (a === "--status") out.status = argv[++i];
-    else if (a === "-h" || a === "--help") {
-      printHelpAndExit(0);
-    }
-  }
-  return out;
-}
-
-function printHelpAndExit(code: number): never {
-  // eslint-disable-next-line no-console
-  console.log(`
-Provision a tenant API key (stored hashed) for Solace Adapter.
-
-Usage:
-  node --loader ts-node/esm scripts/provision-api-key.ts --org <ORG_UUID> [--label "Customer A"] [--status active|revoked]
-
-Env required:
-  SUPABASE_URL
-  SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE / SUPABASE_SERVICE_KEY)
-
-Notes:
-- The raw API key is printed ONCE. Store it securely.
-- Only SHA-256 hash is stored in Supabase.
-`);
-  process.exit(code);
-}
 
 function mustEnv(name: string): string {
   const v = process.env[name];
@@ -69,112 +26,125 @@ function pickServiceRoleKey(): string {
   ).trim();
 }
 
-function isLikelyUuid(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    v
-  );
-}
-
-function generateRawApiKey(): string {
-  // 32 bytes = 256-bit; base64url is safe for headers.
-  return crypto.randomBytes(32).toString("base64url");
+function parseArgs(argv: string[]) {
+  const out: { org?: string; label?: string } = {};
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === "--org") out.org = argv[++i];
+    else if (argv[i] === "--label") out.label = argv[++i];
+  }
+  return out;
 }
 
 function sha256Hex(input: string): string {
   return crypto.createHash("sha256").update(input, "utf8").digest("hex");
 }
 
+function generateApiKey(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function generateEd25519Keypair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+
+  const publicPem = publicKey.export({
+    type: "spki",
+    format: "pem",
+  }).toString();
+
+  const privatePem = privateKey.export({
+    type: "pkcs8",
+    format: "pem",
+  }).toString();
+
+  return { publicPem, privatePem };
+}
+
 async function main() {
   const args = parseArgs(process.argv);
+  if (!args.org) throw new Error("--org is required");
 
-  if (!args.org) {
-    // eslint-disable-next-line no-console
-    console.error("Error: --org is required.");
-    printHelpAndExit(1);
-  }
-
-  const orgId = String(args.org).trim();
-  if (!isLikelyUuid(orgId)) {
-    // eslint-disable-next-line no-console
-    console.error(`Error: --org must be a UUID. Received: ${orgId}`);
-    process.exit(1);
-  }
+  const orgId = args.org;
 
   const SUPABASE_URL = mustEnv("SUPABASE_URL");
-  const SUPABASE_SERVICE_ROLE_KEY = pickServiceRoleKey();
-  if (!SUPABASE_SERVICE_ROLE_KEY) {
-    // eslint-disable-next-line no-console
-    console.error(
-      "Error: missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE / SUPABASE_SERVICE_KEY)."
-    );
-    process.exit(1);
-  }
+  const SERVICE_ROLE = pickServiceRoleKey();
+  if (!SERVICE_ROLE) throw new Error("missing_service_role_key");
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   });
 
-  const rawKey = generateRawApiKey();
-  const keyHash = sha256Hex(rawKey);
+  /**
+   * ------------------------------------------------------------
+   * 1️⃣ Generate API Key
+   * ------------------------------------------------------------
+   */
+  const rawApiKey = generateApiKey();
+  const apiKeyHash = sha256Hex(rawApiKey);
 
-  const status = (args.status || "active").trim();
-  const label = args.label ? String(args.label).trim() : null;
-
-  // Insert minimal fields to avoid schema assumptions:
-  // - organization_id
-  // - key_hash
-  // - status
-  //
-  // If your table has additional NOT NULL fields, add them here explicitly.
-  const payload: Record<string, unknown> = {
-    organization_id: orgId,
-    key_hash: keyHash,
-    status,
-  };
-
-  // If your table includes a label/notes column, we attempt it without requiring it.
-  // This is safe only if the column exists; if it doesn't, Supabase will error.
-  // To avoid that, we only include it when provided AND you confirm the column exists.
-  if (label) payload["label"] = label;
-
-  const { data, error } = await supabase
+  const { data: apiKeyRow, error: apiKeyError } = await supabase
     .from("solace_api_keys")
-    .insert(payload)
-    .select("id, organization_id, status")
+    .insert({
+      organization_id: orgId,
+      key_hash: apiKeyHash,
+      status: "active",
+    })
+    .select("id")
     .single();
 
-  if (error) {
-    // eslint-disable-next-line no-console
-    console.error("Supabase insert error:", error);
+  if (apiKeyError) {
+    console.error(apiKeyError);
     process.exit(1);
   }
 
-  // eslint-disable-next-line no-console
-  console.log("✅ Provisioned Solace Adapter API Key");
-  // eslint-disable-next-line no-console
-  console.log("organization_id:", data.organization_id);
-  // eslint-disable-next-line no-console
-  console.log("api_key_id:", data.id);
-  // eslint-disable-next-line no-console
-  console.log("status:", data.status);
-  // eslint-disable-next-line no-console
-  console.log("");
-  // eslint-disable-next-line no-console
-  console.log("⚠️  RAW API KEY (store securely; shown once):");
-  // eslint-disable-next-line no-console
-  console.log(rawKey);
-  // eslint-disable-next-line no-console
-  console.log("");
-  // eslint-disable-next-line no-console
-  console.log("Client headers:");
-  // eslint-disable-next-line no-console
+  /**
+   * ------------------------------------------------------------
+   * 2️⃣ Generate Ed25519 Keypair
+   * ------------------------------------------------------------
+   */
+  const { publicPem, privatePem } = generateEd25519Keypair();
+
+  const authorityKeyId = crypto.randomUUID();
+
+  const { error: authorityError } = await supabase
+    .from("solace_authority_keys")
+    .insert({
+      id: authorityKeyId,
+      organization_id: orgId,
+      public_key: publicPem,
+      status: "active",
+      valid_from: new Date().toISOString(),
+      valid_until: null,
+    });
+
+  if (authorityError) {
+    console.error(authorityError);
+    process.exit(1);
+  }
+
+  /**
+   * ------------------------------------------------------------
+   * Output onboarding bundle
+   * ------------------------------------------------------------
+   */
+  console.log("\n✅ Client Provisioned Successfully\n");
+
+  console.log("organization_id:", orgId);
+  console.log("api_key_id:", apiKeyRow.id);
+  console.log("authorityKeyId:", authorityKeyId);
+
+  console.log("\n⚠️ STORE SECURELY — PRIVATE KEY (shown once)\n");
+  console.log(privatePem);
+
+  console.log("\nClient Headers:");
   console.log(`x-solace-org-id: ${orgId}`);
-  // eslint-disable-next-line no-console
-  console.log(`x-solace-api-key: ${rawKey}`);
+  console.log(`x-solace-api-key: ${rawApiKey}`);
+
+  console.log("\nAuthority Key Usage:");
+  console.log("authorityKeyId:", authorityKeyId);
+  console.log("Use private key to sign acceptance payloads.");
 }
 
 main().catch((e) => {
-  // eslint-disable-next-line no-console
-  console.error("Fatal error:", e);
+  console.error("Fatal:", e);
   process.exit(1);
 });
