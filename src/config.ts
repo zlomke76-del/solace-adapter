@@ -1,7 +1,11 @@
 // src/config.ts
 
 import fs from "fs";
-import type { AdapterForwardingConfig, CoreClientConfig, ForwardTarget } from "./types.js";
+import type {
+  AdapterForwardingConfig,
+  CoreClientConfig,
+  ForwardTarget,
+} from "./types.js";
 import { ConfigError } from "./errors.js";
 
 function readFileIfExists(p: string): string | null {
@@ -16,7 +20,9 @@ function readFileIfExists(p: string): string | null {
 
 function mustEnv(name: string): string {
   const v = process.env[name];
-  if (!v || !String(v).trim()) throw new ConfigError(`missing_env_${name}`);
+  if (!v || !String(v).trim()) {
+    throw new ConfigError(`missing_env_${name}`);
+  }
   return String(v);
 }
 
@@ -29,8 +35,10 @@ function optEnv(name: string): string | undefined {
 function parseJson<T>(raw: string, name: string): T {
   try {
     return JSON.parse(raw) as T;
-  } catch (e) {
-    throw new ConfigError(`invalid_json_${name}`, { rawPreview: raw.slice(0, 200) });
+  } catch {
+    throw new ConfigError(`invalid_json_${name}`, {
+      rawPreview: raw.slice(0, 200),
+    });
   }
 }
 
@@ -40,7 +48,11 @@ function parseIntOpt(v: string | undefined, def: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
 }
 
-function loadPem(params: { pemEnv?: string; pathEnv?: string; label: string }): string {
+function loadPem(params: {
+  pemEnv?: string;
+  pathEnv?: string;
+  label: string;
+}): string {
   const pemFromEnv = params.pemEnv ? optEnv(params.pemEnv) : undefined;
   if (pemFromEnv && pemFromEnv.includes("BEGIN")) return pemFromEnv;
 
@@ -51,7 +63,9 @@ function loadPem(params: { pemEnv?: string; pathEnv?: string; label: string }): 
   }
 
   throw new ConfigError(`missing_${params.label}_pem`, {
-    expected: params.pemEnv ? [params.pemEnv, params.pathEnv].filter(Boolean) : [params.pathEnv].filter(Boolean),
+    expected: params.pemEnv
+      ? [params.pemEnv, params.pathEnv].filter(Boolean)
+      : [params.pathEnv].filter(Boolean),
   });
 }
 
@@ -79,13 +93,28 @@ export function loadAdapterConfigFromEnv(): AdapterForwardingConfig {
     label: "receipt_public_key",
   });
 
-  const receiptTtlSeconds = parseIntOpt(optEnv("SOLACE_ADAPTER_RECEIPT_TTL_SECONDS"), 30);
-  const clockSkewSeconds = parseIntOpt(optEnv("SOLACE_ADAPTER_CLOCK_SKEW_SECONDS"), 10);
+  const receiptTtlSeconds = parseIntOpt(
+    optEnv("SOLACE_ADAPTER_RECEIPT_TTL_SECONDS"),
+    30
+  );
 
-  const timeoutMs = parseIntOpt(optEnv("SOLACE_CORE_TIMEOUT_MS"), 8000);
+  const clockSkewSeconds = parseIntOpt(
+    optEnv("SOLACE_ADAPTER_CLOCK_SKEW_SECONDS"),
+    10
+  );
+
+  const timeoutMs = parseIntOpt(
+    optEnv("SOLACE_CORE_TIMEOUT_MS"),
+    8000
+  );
 
   const coreHeadersJson = optEnv("SOLACE_CORE_HEADERS_JSON");
-  const headers = coreHeadersJson ? parseJson<Record<string, string>>(coreHeadersJson, "SOLACE_CORE_HEADERS_JSON") : {};
+  const headers = coreHeadersJson
+    ? parseJson<Record<string, string>>(
+        coreHeadersJson,
+        "SOLACE_CORE_HEADERS_JSON"
+      )
+    : {};
 
   const core: CoreClientConfig = {
     coreBaseUrl,
@@ -93,16 +122,28 @@ export function loadAdapterConfigFromEnv(): AdapterForwardingConfig {
     headers,
   };
 
-  const actionToServiceJson = mustEnv("SOLACE_ADAPTER_ACTION_TO_SERVICE_JSON");
-  const actionToService = parseJson<Record<string, string>>(actionToServiceJson, "SOLACE_ADAPTER_ACTION_TO_SERVICE_JSON");
-
+  /**
+   * ------------------------------------------------------------
+   * Execution topology (prefix-routed services)
+   * ------------------------------------------------------------
+   * Only declared services in SOLACE_ADAPTER_TARGETS_JSON
+   * may receive forwarded execution.
+   * ------------------------------------------------------------
+   */
   const targetsJsonRaw = mustEnv("SOLACE_ADAPTER_TARGETS_JSON");
-  const targetsJson = parseJson<TargetsJson>(targetsJsonRaw, "SOLACE_ADAPTER_TARGETS_JSON");
+  const targetsJson = parseJson<TargetsJson>(
+    targetsJsonRaw,
+    "SOLACE_ADAPTER_TARGETS_JSON"
+  );
 
   const targets: Record<string, ForwardTarget> = {};
+
   for (const service of Object.keys(targetsJson)) {
     const t = targetsJson[service];
-    if (!t?.url) throw new ConfigError("invalid_target_missing_url", { service });
+    if (!t?.url) {
+      throw new ConfigError("invalid_target_missing_url", { service });
+    }
+
     targets[service] = {
       service,
       url: String(t.url),
@@ -117,7 +158,6 @@ export function loadAdapterConfigFromEnv(): AdapterForwardingConfig {
     receiptTtlSeconds,
     clockSkewSeconds,
     core,
-    actionToService,
     targets,
   };
 }
