@@ -1,10 +1,19 @@
 import express, { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
-import rateLimit from "express-rate-limit";
+import rateLimitModule from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 import { loadAdapterConfigFromEnv } from "./config.js";
 import { gateAndForward, authorizeOnly } from "./gate.js";
 import { asMessage } from "./errors.js";
+
+/**
+ * ------------------------------------------------------------
+ * Fix CommonJS default export in ESM
+ * ------------------------------------------------------------
+ */
+const rateLimit =
+  (rateLimitModule as unknown as { default?: typeof rateLimitModule })
+    .default ?? rateLimitModule;
 
 const app = express();
 const cfg = loadAdapterConfigFromEnv();
@@ -70,8 +79,8 @@ app.get("/v1/info", (_req: Request, res: Response) => {
     version: "v1",
     rateLimit: {
       windowSeconds: Number(process.env.SOLACE_RATE_LIMIT_WINDOW_SECONDS || 60),
-      maxRequests: Number(process.env.SOLACE_RATE_LIMIT_MAX || 100)
-    }
+      maxRequests: Number(process.env.SOLACE_RATE_LIMIT_MAX || 100),
+    },
   });
 });
 
@@ -147,7 +156,7 @@ const tenantRateLimiter = rateLimit({
     (req as any).solaceTenant?.organizationId || "unknown",
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (req, res) => {
+  handler: (req: Request, res: Response) => {
     res.status(429).json({
       decision: "DENY",
       reason: "rate_limit_exceeded",
