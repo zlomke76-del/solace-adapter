@@ -21,7 +21,8 @@ const SUPABASE_SERVICE_ROLE_KEY =
   null;
 
 if (!SUPABASE_URL) throw new Error("supabase_url_missing");
-if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error("supabase_service_role_key_missing");
+if (!SUPABASE_SERVICE_ROLE_KEY)
+  throw new Error("supabase_service_role_key_missing");
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
@@ -41,7 +42,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 /**
  * ------------------------------------------------------------
- * Health (includes Supabase test)
+ * Health
  * ------------------------------------------------------------
  */
 app.get("/health", async (_req: Request, res: Response) => {
@@ -55,6 +56,42 @@ app.get("/health", async (_req: Request, res: Response) => {
     adapterId: cfg.adapterId,
     supabaseConnected: !error,
     supabaseError: error?.message || null,
+  });
+});
+
+/**
+ * ------------------------------------------------------------
+ * Public API Info
+ * ------------------------------------------------------------
+ */
+app.get("/v1/info", (_req: Request, res: Response) => {
+  res.json({
+    version: "v1",
+    baseUrl: "https://solace-adapter.vercel.app",
+    endpoints: {
+      health: "GET /health",
+      gate: "POST /v1/gate",
+      authorize: "POST /v1/authorize",
+    },
+    authentication: {
+      headers: [
+        "x-solace-org-id",
+        "x-solace-api-key",
+        "Content-Type: application/json",
+      ],
+      description:
+        "API key is organization-scoped. Adapter hashes key using SHA-256 and validates active status.",
+    },
+    executionContract: {
+      requiredEnvelope: [
+        "intent.actor.id",
+        "intent.intent",
+        "execute.action",
+        "acceptance",
+      ],
+      actionFormat: "<service>:<operation>",
+      failClosed: true,
+    },
   });
 });
 
@@ -79,19 +116,12 @@ async function requireTenant(
     });
   }
 
-  // IMPORTANT: trim but do NOT lowercase or modify
   const apiKey = apiKeyRaw.trim();
 
   const keyHash = crypto
     .createHash("sha256")
     .update(apiKey, "utf8")
     .digest("hex");
-
-  // Temporary debug logs (safe to remove later)
-  console.log("---- TENANT DEBUG ----");
-  console.log("ORG:", orgId);
-  console.log("RAW LENGTH:", apiKey.length);
-  console.log("HASH:", keyHash);
 
   const { data, error } = await supabase
     .from("solace_api_keys")
@@ -102,7 +132,6 @@ async function requireTenant(
     .maybeSingle();
 
   if (error) {
-    console.error("Supabase error:", error);
     return res.status(503).json({
       decision: "DENY",
       reason: "api_key_lookup_failed",
@@ -145,6 +174,13 @@ app.post(
     try {
       const result = await gateAndForward(cfg, req.body);
 
+      if (result.decision !== "PERMIT") {
+        return res.status(403).json({
+          ...result,
+          requestId: (req as any).solaceRequestId,
+        });
+      }
+
       return res.status(200).json({
         ...result,
         requestId: (req as any).solaceRequestId,
@@ -161,7 +197,7 @@ app.post(
 
 /**
  * ------------------------------------------------------------
- * Optional authorize-only endpoint
+ * Authorize-only endpoint
  * ------------------------------------------------------------
  */
 app.post(
