@@ -1,9 +1,12 @@
+// src/app.ts
+
 import express, { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { createRequire } from "module";
 import { createClient } from "@supabase/supabase-js";
 import { loadAdapterConfigFromEnv } from "./config.js";
 import { gateAndForward, authorizeOnly } from "./gate.js";
+import { SolaceCoreClient } from "./coreClient.js";
 import { asMessage } from "./errors.js";
 
 /**
@@ -334,9 +337,7 @@ app.post(
       }
 
       // 4) Mark registration approved
-      const reviewedBy =
-        String(req.body?.reviewed_by || "").trim() ||
-        "admin";
+      const reviewedBy = String(req.body?.reviewed_by || "").trim() || "admin";
 
       const { error: updErr } = await supabase
         .from("solace_client_registrations")
@@ -490,6 +491,14 @@ app.post(
 /**
  * ------------------------------------------------------------
  * Authorize-only endpoint
+ *
+ * IMPORTANT:
+ * solace-core-authority currently exposes /v1/execute (NOT /v1/authorize).
+ * So this endpoint proxies to Core /v1/execute and returns the Core decision,
+ * without forwarding to any executor.
+ *
+ * Client should POST the SAME envelope shape used for /v1/gate:
+ * { intent: {...}, execute: {...}, acceptance: {...} }
  * ------------------------------------------------------------
  */
 app.post(
@@ -499,12 +508,23 @@ app.post(
   express.json({ limit: "256kb" }),
   async (req: Request, res: Response) => {
     try {
-      const result = await authorizeOnly(cfg, req.body);
-      res.json(result);
+      // Keep backward-compat import (authorizeOnly) but do the correct Core call:
+      const core = new SolaceCoreClient(cfg.core);
+      const coreRes = await core.execute(req.body);
+
+      return res.status(200).json({
+        ...coreRes,
+        requestId: (req as any).solaceRequestId,
+      });
+
+      // NOTE: If you later add /v1/authorize to Core, you can switch back to:
+      // const result = await authorizeOnly(cfg, req.body);
+      // return res.status(200).json({ ...result, requestId: (req as any).solaceRequestId });
     } catch (e) {
-      res.status(500).json({
+      return res.status(500).json({
         decision: "DENY",
         reason: asMessage(e),
+        requestId: (req as any).solaceRequestId,
       });
     }
   }
